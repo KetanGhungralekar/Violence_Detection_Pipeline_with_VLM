@@ -1,0 +1,5 @@
+Road, Shoot, Vandal - 0.5sec overlap, est.py
+Fighting - 0.75sec, est
+Arrest, Robbery - est_less, 4.5
+Abuse, Assault, Explosion - est_less, 1.5
+Arson - est_less, 2.5

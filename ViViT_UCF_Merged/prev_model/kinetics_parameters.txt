@@ -1,0 +1,423 @@
+================================================================================
+1. PERFORMANCE & HARDWARE SETTINGS
+================================================================================
+
+NUM_GPUS                = torch.cuda.device_count()  # Automatic GPU detection
+NUM_WORKERS             = 4                          # DataLoader worker processes
+PIN_MEMORY              = True                       # Pin memory for faster GPU transfer
+BENCHMARK               = True                       # Enable cuDNN benchmark mode
+PREFETCH_FACTOR         = 2                          # Number of batches to prefetch
+BATCH_SIZE              = 8                          # Batch size (reduced from 16 due to 32 frames)
+MIXED_PRECISION         = True                       # Enable FP16 mixed precision training
+
+torch.backends.cudnn.benchmark = BENCHMARK           # Enable cuDNN auto-tuner
+
+
+================================================================================
+2. VIDEO DATASET PARAMETERS
+================================================================================
+
+VideoDataset Class Parameters:
+------------------------------
+video_paths             = (required list)            # List of paths to video files
+labels                  = (required list)            # List of labels corresponding to videos
+num_frames              = 32                         # Number of frames to extract per video
+image_size              = 224                        # Image size (height and width)
+cache_size              = 100                        # Maximum number of videos to cache in memory
+
+
+================================================================================
+3. DATA LOADING & SPLITTING
+================================================================================
+
+load_data() Function Parameters:
+--------------------------------
+data_root               = "../../clips_ucfcrime/"    # Root directory for dataset
+
+EXCLUDE_CLASS           = "Normal_Videos_for_Event_Recognition"  # Class to exclude
+
+Supported video formats: .mp4, .avi, .mov, .mkv
+
+Data Split Ratios:
+-----------------
+Train Set               = 90% (0.95 * 0.9474 = ~90%)
+Validation Set          = 5%  (0.95 * 0.0526 = ~5%)
+Test Set                = 5%  (0.05 directly)
+random_state            = 42                         # Random seed for reproducibility
+stratify                = True                       # Stratified split by class
+
+
+================================================================================
+4. MODEL ARCHITECTURE PARAMETERS
+================================================================================
+
+HuggingFace ViViT (Primary):
+----------------------------
+Model                   = "google/vivit-b-16x2-kinetics400"
+num_labels              = len(data_subset)           # Automatically set based on dataset
+num_frames              = 32                         # Inherited from pretrained config
+image_size              = 224                        # Inherited from pretrained config
+tubelet_size            = [2, 16, 16]                # Temporal, Height, Width
+patch_size (spatial)    = 16x16                      # Spatial patch size
+tubelet_size (temporal) = 2                          # Temporal tubelet size
+
+Custom ViViT (Fallback):
+------------------------
+image_size              = 224                        # Input image size
+patch_size              = 16                         # Patch size for patch embedding
+num_classes             = len(data_subset)           # Number of output classes
+num_frames              = 32                         # Number of frames per video
+dropout                 = 0.2                        # Dropout rate
+emb_dropout             = 0.1                        # Embedding dropout rate
+depth                   = 4                          # Number of transformer layers (Space)
+
+
+================================================================================
+5. TRAINING HYPERPARAMETERS
+================================================================================
+
+Optimizer (AdamW):
+-----------------
+optimizer               = optim.AdamW
+learning_rate           = 1e-3                       # Initial learning rate
+weight_decay            = 1e-2                       # L2 regularization weight decay
+
+Loss Function:
+-------------
+criterion               = nn.CrossEntropyLoss
+label_smoothing         = 0.1                        # Label smoothing for regularization
+
+Learning Rate Scheduler:
+-----------------------
+scheduler               = ReduceLROnPlateau
+mode                    = 'min'                      # Reduce LR when validation loss stops decreasing
+factor                  = 0.5                        # LR reduction factor (new_lr = lr * factor)
+patience                = 10                         # Number of epochs with no improvement before reducing LR
+min_lr                  = 1e-6                       # Minimum learning rate
+
+Gradient Clipping:
+-----------------
+max_norm                = 1.0                        # Maximum gradient norm for clipping
+
+Training Loop:
+-------------
+additional_epochs       = 200                        # Number of epochs to train
+early_stopping_patience = 20                         # Stop if no improvement for N epochs
+start_epoch             = 0                          # Starting epoch (0 for new training)
+
+
+================================================================================
+6. PRETRAINED WEIGHTS & TRANSFER LEARNING
+================================================================================
+
+Pretrained Model Loading:
+------------------------
+pretrained_path         = None                       # Path to local pretrained weights (optional)
+num_classes_pretrained  = 101                        # Number of classes in pretrained model
+num_classes_current     = 14                         # Number of classes in current dataset
+
+HuggingFace Model:
+-----------------
+ignore_mismatched_sizes = True                       # Allow loading with different num_classes
+
+Layer Freezing (Custom ViViT):
+------------------------------
+Freeze: to_patch_embedding parameters
+Freeze: pos_embedding (nn.Parameter)
+Freeze: space_token (nn.Parameter)
+Freeze: temporal_token (nn.Parameter)
+Freeze: entire space_transformer (all 4 layers by default)
+
+Optional temporal layer freezing (commented out):
+num_temporal_layers_to_freeze = 3                    # First N temporal transformer layers
+
+
+================================================================================
+7. CHECKPOINT & RESUME TRAINING
+================================================================================
+
+Checkpoints:
+-----------
+checkpoints_dir         = f"./checkpoints_{datetime.now().strftime('%Y%m%d_%H%M')}"
+checkpoint_frequency    = Every epoch
+best_checkpoint_name    = "best_checkpoint.pth"
+epoch_checkpoint_format = f"checkpoint_epoch_{epoch+1}.pth"
+
+Checkpoint Contents:
+-------------------
+- epoch                 (int)
+- model_state_dict      (OrderedDict)
+- optimizer_state_dict  (dict)
+- scheduler_state_dict  (dict or None)
+- train_loss            (float)
+- val_loss              (float)
+
+Resume Training:
+---------------
+checkpoint_path         = None                       # Set to path to resume (e.g., "./checkpoints_20241105_1430/best_checkpoint.pth")
+start_epoch             = 0                          # Automatically loaded from checkpoint
+
+
+================================================================================
+8. DATALOADER PARAMETERS
+================================================================================
+
+Training DataLoader:
+-------------------
+batch_size              = BATCH_SIZE (8)
+shuffle                 = True
+num_workers             = NUM_WORKERS (4)
+pin_memory              = PIN_MEMORY (True)
+prefetch_factor         = PREFETCH_FACTOR (2)
+persistent_workers      = True (if NUM_WORKERS > 0 else False)
+
+Validation DataLoader:
+---------------------
+batch_size              = BATCH_SIZE (8)
+shuffle                 = False
+num_workers             = NUM_WORKERS (4)
+pin_memory              = PIN_MEMORY (True)
+prefetch_factor         = PREFETCH_FACTOR (2)
+persistent_workers      = True (if NUM_WORKERS > 0 else False)
+
+Test DataLoader:
+---------------
+batch_size              = BATCH_SIZE (8)
+shuffle                 = False
+num_workers             = NUM_WORKERS (4)
+pin_memory              = PIN_MEMORY (True)
+prefetch_factor         = PREFETCH_FACTOR (2)
+persistent_workers      = True (if NUM_WORKERS > 0 else False)
+
+
+================================================================================
+9. METRICS & EVALUATION
+================================================================================
+
+Metrics Calculated:
+------------------
+Overall Metrics:
+- accuracy
+- precision_macro (macro-averaged precision)
+- recall_macro (macro-averaged recall)
+- f1_macro (macro-averaged F1)
+- precision_micro (micro-averaged precision)
+- recall_micro (micro-averaged recall)
+- f1_micro (micro-averaged F1)
+- precision_weighted (weighted-averaged precision)
+- recall_weighted (weighted-averaged recall)
+- f1_weighted (weighted-averaged F1)
+
+Per-Class Metrics:
+- accuracy (per class)
+- precision (per class)
+- recall (per class)
+- f1 (per class)
+
+Inference Time Tracking:
+-----------------------
+- Per-video inference time (seconds)
+- Average, Min, Max, Median, Std Dev
+- Saved to CSV with predictions
+
+Metrics Saved As:
+----------------
+- detailed_metrics.txt
+- metrics.csv
+- per_class_f1.png (bar plot)
+- confusion_matrix.png (heatmap)
+- classification_report_detailed.csv
+- inference_times.csv
+- inference_time_distribution.png (histogram)
+
+
+================================================================================
+10. PLOTTING & VISUALIZATION PARAMETERS
+================================================================================
+
+Plot Formats:
+------------
+figsize                 = Various: (10,6), (12,10), (14,8), (15,8), (18,6)
+dpi                     = 300                        # High resolution for publication quality
+bbox_inches             = 'tight'                    # Tight bounding box
+
+Plots Generated:
+---------------
+Training Metrics:
+- loss_plot.png (train vs val loss)
+- accuracy_plot.png (train vs val accuracy)
+- precision_plot.png (train vs val precision)
+- recall_plot.png (train vs val recall)
+- f1_plot.png (train vs val F1)
+- classwise_evolution.png (per-class F1 evolution over epochs)
+
+Test Metrics:
+- confusion_matrix_detailed.png
+- classwise_performance.png (precision, recall, F1 per class)
+- inference_time_distribution.png
+
+Heatmap Parameters:
+------------------
+annot                   = True                       # Show values in heatmap cells
+fmt                     = 'd' or 'g'                # Integer or general format
+cmap                    = 'Blues'                    # Color scheme
+
+Bar Chart Parameters:
+--------------------
+rotation                = 45 or 90                   # X-axis label rotation
+ha                      = 'right'                    # Horizontal alignment
+alpha                   = 0.7                        # Transparency
+
+
+================================================================================
+11. LOGGING PARAMETERS
+================================================================================
+
+Log File:
+--------
+log_filename            = f'./training_{datetime.now().strftime("%Y%m%d")}.log'
+logging_level           = logging.INFO
+format                  = '%(asctime)s %(levelname)s: %(message)s'
+
+Console Logging:
+---------------
+console_level           = logging.INFO
+
+Batch Logging Frequency:
+-----------------------
+log_every_n_batches     = 10                         # Log batch info every 10 batches
+
+
+================================================================================
+12. MULTI-GPU PARAMETERS
+================================================================================
+
+Multi-GPU Setup:
+---------------
+prepare_model()         = Uses nn.DataParallel if num_gpus > 1
+num_gpus                = Automatically detected via torch.cuda.device_count()
+
+
+================================================================================
+13. MIXED PRECISION TRAINING
+================================================================================
+
+GradScaler:
+----------
+enabled                 = MIXED_PRECISION (True)
+device                  = 'cuda'
+
+Autocast Context:
+----------------
+device_type             = 'cuda'
+enabled                 = MIXED_PRECISION (True)
+
+
+================================================================================
+14. OUTPUT FILES & DIRECTORIES
+================================================================================
+
+Directory Structure:
+-------------------
+checkpoints_{timestamp}/
+├── checkpoint_epoch_1.pth
+├── checkpoint_epoch_2.pth
+├── ...
+├── best_checkpoint.pth
+├── vivit_model_final.pth
+├── loss_plot.png
+├── accuracy_plot.png
+├── precision_plot.png
+├── recall_plot.png
+├── f1_plot.png
+├── classwise_evolution.png
+├── train_metrics/
+│   └── (per-epoch training metrics)
+├── val_metrics/
+│   ├── epoch_1_detailed_metrics.txt
+│   ├── epoch_1_metrics.csv
+│   ├── epoch_1_per_class_f1.png
+│   ├── epoch_1_confusion_matrix.png
+│   ├── epoch_1_inference_times.csv
+│   └── ...
+├── test_metrics/
+│   ├── detailed_metrics.txt
+│   ├── metrics.csv
+│   ├── per_class_f1.png
+│   ├── confusion_matrix.png
+│   ├── test_inference_times.csv
+│   └── ...
+└── comprehensive_test_results/
+    ├── confusion_matrix_detailed.png
+    ├── classwise_performance.png
+    ├── classification_report_detailed.csv
+    ├── comprehensive_test_inference_times.csv
+    └── inference_time_distribution.png
+
+Log File:
+--------
+training_{YYYYMMDD}.log
+
+
+================================================================================
+15. EXTERNAL DEPENDENCIES
+================================================================================
+
+Required Libraries:
+------------------
+- torch (PyTorch)
+- torchvision
+- transformers (HuggingFace)
+- sklearn (scikit-learn)
+- matplotlib
+- seaborn
+- numpy
+- pandas
+- tqdm
+
+Optional Libraries:
+------------------
+- timm (for additional pretrained models)
+- torch.hub (for PyTorch Hub models)
+
+Custom Modules:
+--------------
+- vivit.py (contains: ViViT class, load_video function)
+
+
+================================================================================
+16. ADDITIONAL NOTES
+================================================================================
+
+Memory Considerations:
+---------------------
+- BATCH_SIZE reduced from 16 to 8 due to increased frames (16→32) doubling memory usage
+- Cache size set to 100 videos to balance memory and performance
+- Mixed precision training enabled to reduce memory footprint
+
+Performance Optimizations:
+-------------------------
+- cuDNN benchmark mode enabled for faster convolutions
+- Persistent workers for DataLoader to avoid worker respawn overhead
+- Pin memory for faster CPU-to-GPU transfers
+- Gradient accumulation via set_to_none=True for memory efficiency
+
+Regularization Techniques:
+-------------------------
+- Label smoothing (0.1)
+- Weight decay (1e-2)
+- Gradient clipping (max_norm=1.0)
+- Dropout (0.2 in custom ViViT)
+- Embedding dropout (0.1 in custom ViViT)
+- Early stopping (patience=20)
+
+Transfer Learning Strategy:
+--------------------------
+1. Load HuggingFace pretrained ViViT from Kinetics-400
+2. Adapt classifier head to target number of classes
+3. Fine-tune all layers (no freezing for HF model)
+4. For custom ViViT: freeze patch embeddings and spatial transformer
+
+================================================================================
+END OF PARAMETER DOCUMENTATION
+================================================================================
